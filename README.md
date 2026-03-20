@@ -108,7 +108,7 @@ All configuration is done via environment variables:
 
 | Variable      | Default                   | Description                        |
 |---------------|---------------------------|------------------------------------|
-| `AUTH_KEY`    | `Basic UssEnterprise!`    | Authorization header value         |
+| `AUTH_KEY`    | `Basic YourSecretKeyHere` | Authorization header value         |
 | `PORT`        | `2000`                    | Port the server listens on         |
 | `FLASK_DEBUG` | `false`                   | Enable Flask debug mode            |
 
