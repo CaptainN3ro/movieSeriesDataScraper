@@ -70,6 +70,7 @@ Returns `200 OK` if the service is running. No authentication required.
    ```bash
    cp .env.example .env
    # Edit .env and set a secure AUTH_KEY
+   # Insert also your tmdb access token TMDB_TOKEN (free for private use)
    ```
 
 3. Start the service:

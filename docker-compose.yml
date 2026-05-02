@@ -4,9 +4,10 @@ services:
     ports:
       - "2000:2000"
     environment:
-      - AUTH_KEY=${AUTH_KEY:-Basic UssEnterprise!}
+      - AUTH_KEY=${AUTH_KEY}
       - PORT=2000
       - FLASK_DEBUG=false
+      - TMDB_TOKEN=${TMDB_TOKEN}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:2000/health')"]

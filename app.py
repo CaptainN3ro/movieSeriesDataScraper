@@ -1,111 +1,105 @@
 from flask import Flask, request, jsonify
 import requests
-from bs4 import BeautifulSoup
-import urllib.parse
-import re
 import os
 
 app = Flask(__name__)
 
 AUTH_KEY = os.environ.get("AUTH_KEY", "Basic YourSecretKeyHere")
+TMDB_TOKEN = os.environ.get("TMDB_TOKEN", "")
+
+TMDB_BASE = "https://api.themoviedb.org/3"
+TMDB_IMG = "https://image.tmdb.org/t/p/w500"
+
+TMDB_HEADERS = {
+    "Authorization": f"Bearer {TMDB_TOKEN}",
+    "accept": "application/json",
+}
 
 
-def get_first_movie_href(search_query):
-    encoded_query = urllib.parse.quote_plus(search_query)
-    url = f"https://www.themoviedb.org/search?query={encoded_query}"
-
-    headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(url, headers=headers)
-    response.raise_for_status()
-
-    soup = BeautifulSoup(response.text, "html.parser")
-
-    results_div = soup.find("div", class_=["search_results", "movie"])
-    if not results_div:
-        return None
-
-    first_card = results_div.find("div", class_="card v4 tight")
-    if not first_card:
-        return None
-
-    link_tag = first_card.find("a", class_="result")
-    if link_tag and link_tag.get("href"):
-        href = link_tag["href"]
-        full_url = urllib.parse.urljoin("https://www.themoviedb.org", href)
-        return full_url
-
-    return None
+def search_movie(query):
+    resp = requests.get(
+        f"{TMDB_BASE}/search/movie",
+        headers=TMDB_HEADERS,
+        params={"query": query, "language": "de-DE", "page": 1},
+    )
+    resp.raise_for_status()
+    results = resp.json().get("results", [])
+    return results[0] if results else None
 
 
-def scrape_movie_details(movie_url):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(movie_url, headers=headers)
-    response.raise_for_status()
+def search_tv(query):
+    resp = requests.get(
+        f"{TMDB_BASE}/search/tv",
+        headers=TMDB_HEADERS,
+        params={"query": query, "language": "de-DE", "page": 1},
+    )
+    resp.raise_for_status()
+    results = resp.json().get("results", [])
+    return results[0] if results else None
 
-    soup = BeautifulSoup(response.text, "html.parser")
 
-    # Movie name
-    title_tag = soup.select_one("div.title h2 a")
-    movie_name = title_tag.get_text(strip=True) if title_tag else None
+def get_watch_providers(tmdb_id, media_type, country="DE"):
+    resp = requests.get(
+        f"{TMDB_BASE}/{media_type}/{tmdb_id}/watch/providers",
+        headers=TMDB_HEADERS,
+    )
+    resp.raise_for_status()
+    de_data = resp.json().get("results", {}).get(country, {})
 
-    # Image URL
-    img_tag = soup.select_one("img.poster.w-full")
-    image_url = img_tag["src"] if img_tag and img_tag.get("src") else None
+    for ptype, label in [("flatrate", "Stream"), ("buy", "Kauf"), ("rent", "Leihen")]:
+        providers = de_data.get(ptype, [])
+        if providers:
+            name = providers[0].get("provider_name", "")
+            for platform in ["Netflix", "Amazon", "Disney", "Sky", "Apple", "RTL", "Joyn"]:
+                if platform.lower() in name.lower():
+                    return platform, label
+            return name, label
+    return None, None
 
-    # Movie year
-    movie_tag = soup.select_one("div.title h2 span")
-    movie_year = movie_tag.get_text(strip=True).replace("(", "").replace(")", "") if movie_tag else None
 
-    # Description
-    overview_tag = soup.select_one("div.overview p")
-    overview = overview_tag.get_text(strip=True) if overview_tag else None
-
-    # Streaming availability
-    available_platform = None
-    available_type = None
-    provider_img = soup.select_one("div.button div.provider img")
-    if provider_img and provider_img.get("alt"):
-        alt_text = provider_img["alt"]
-
-        for platform in ["Amazon", "Netflix", "Sky", "Disney"]:
-            if platform.lower() in alt_text.lower():
-                available_platform = platform
-                break
-
-        if "stream" in alt_text.lower():
-            available_type = "Stream"
-        elif "kauf" in alt_text.lower():
-            available_type = "Kauf"
-            available_platform = "Amazon"
-
-    # Determine type (Film or Serie) and count seasons if applicable
-    season_section = soup.select_one("section.panel.season")
-    if season_section:
-        movie_type = "Serie"
-
-        last_season_tag = season_section.select_one("div.season.card h2 a")
-        if last_season_tag:
-            match = re.search(r"(\d+)", last_season_tag.get_text(strip=True))
-            season_count = int(match.group(1)) if match else None
-        else:
-            season_count = None
-    else:
-        season_count = None
-        movie_type = "Film"
-
-    # Genres
-    genres = [a.get_text(strip=True) for a in soup.select("div.facts span.genres a")]
+def get_movie_details(tmdb_id):
+    resp = requests.get(
+        f"{TMDB_BASE}/movie/{tmdb_id}",
+        headers=TMDB_HEADERS,
+        params={"language": "de-DE"},
+    )
+    resp.raise_for_status()
+    d = resp.json()
+    platform, avail_type = get_watch_providers(tmdb_id, "movie")
 
     return {
-        "movie_name": movie_name,
-        "image_url": image_url,
-        "movie_year": movie_year,
-        "description": overview,
-        "genres": genres,
-        "available_platform": available_platform,
-        "available_type": available_type,
-        "season_count": season_count,
-        "movie_type": movie_type,
+        "movie_name": d.get("title"),
+        "image_url": f"{TMDB_IMG}{d['poster_path']}" if d.get("poster_path") else None,
+        "movie_year": d.get("release_date", "")[:4],
+        "description": d.get("overview"),
+        "genres": [g["name"] for g in d.get("genres", [])],
+        "available_platform": platform,
+        "available_type": avail_type,
+        "season_count": None,
+        "movie_type": "Film",
+    }
+
+
+def get_series_details(tmdb_id):
+    resp = requests.get(
+        f"{TMDB_BASE}/tv/{tmdb_id}",
+        headers=TMDB_HEADERS,
+        params={"language": "de-DE"},
+    )
+    resp.raise_for_status()
+    d = resp.json()
+    platform, avail_type = get_watch_providers(tmdb_id, "tv")
+
+    return {
+        "movie_name": d.get("name"),
+        "image_url": f"{TMDB_IMG}{d['poster_path']}" if d.get("poster_path") else None,
+        "movie_year": d.get("first_air_date", "")[:4],
+        "description": d.get("overview"),
+        "genres": [g["name"] for g in d.get("genres", [])],
+        "available_platform": platform,
+        "available_type": avail_type,
+        "season_count": d.get("number_of_seasons"),
+        "movie_type": "Serie",
     }
 
 
@@ -119,11 +113,23 @@ def movie():
     if not query:
         return jsonify({"error": "Missing query parameter ?q="}), 400
 
-    movie_url = get_first_movie_href(query)
-    if not movie_url:
+    # Erst Film suchen, dann Serie — nimm was zuerst einen Treffer liefert
+    movie_result = search_movie(query)
+    tv_result = search_tv(query)
+
+    # Wenn beide Treffer, nimm den mit höherem popularity-Wert
+    if movie_result and tv_result:
+        if tv_result.get("popularity", 0) > movie_result.get("popularity", 0):
+            details = get_series_details(tv_result["id"])
+        else:
+            details = get_movie_details(movie_result["id"])
+    elif movie_result:
+        details = get_movie_details(movie_result["id"])
+    elif tv_result:
+        details = get_series_details(tv_result["id"])
+    else:
         return jsonify({"error": "Movie not found"}), 404
 
-    details = scrape_movie_details(movie_url)
     return jsonify(details)
 
 
