@@ -110,6 +110,7 @@ All configuration is done via environment variables:
 | Variable      | Default                   | Description                        |
 |---------------|---------------------------|------------------------------------|
 | `AUTH_KEY`    | `Basic YourSecretKeyHere` | Authorization header value         |
+| `TMDB_TOKEN`  | ``                        | Your tmdb api token                |
 | `PORT`        | `2000`                    | Port the server listens on         |
 | `FLASK_DEBUG` | `false`                   | Enable Flask debug mode            |
 
